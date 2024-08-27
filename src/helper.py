@@ -1,6 +1,9 @@
 import cv2
 import numpy as np
 
+def clamp(value, min_value, max_value):
+    return max(min_value, min(value, max_value))
+
 def show_images(images):
     for i, image in enumerate(images):
         cv2.imshow(f"image{i}", image)
@@ -38,4 +41,21 @@ def check_image(image):
     print("min > 0: ", image[image > 0.0].min(), "\n")
     print("max: ", max, "\n")
     print("next max: ", image[image < max].max(), "\n")
+    
+def check_dataset(dataset, round=True):
+    if round == True:
+        np.set_printoptions(suppress=True, precision=4)
+    print("--------")
+    print(f"sequence: {dataset.sequence}\n")
+    print(f"is rgb: {dataset.is_rgb}\n")
+    print(f"num_frames: {dataset.num_frames}\n")
+    print(f"height: {dataset.height}\n")
+    print(f"width: {dataset.width}\n")
+    print(f"channels: {dataset.channels}\n")
+    print(f"P0: {dataset.P0}\n shape: {dataset.P0.shape} \n type: {type(dataset.P0)}\n value type: {type(dataset.P0[0][0])} \n")
+    print(f"P1: {dataset.P1}\n")
+    print(f"P2: {dataset.P2}\n")
+    print(f"P3: {dataset.P3}\n")
+    print(f"poses: {dataset.poses}\n shape: {dataset.poses.shape} \n type: {type(dataset.poses)}\n value type: {type(dataset.poses[0][0][0])} \n")
+    np.set_printoptions()
     

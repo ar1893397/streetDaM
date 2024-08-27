@@ -4,38 +4,49 @@ import pandas as pd
 import cv2
 
 class Kitti():
-    def __init__(self, sequence, rgb = True):
+    def __init__(self, sequence, is_rgb = True, poses = False):
         self.sequence = sequence
-        if rgb:
+        self.is_rgb = is_rgb
+        if is_rgb:
             prefix = "rgb"
         else:
             prefix = "gray"
         
-        self.seq_dir = f"../dataset/sequences/{prefix}/{sequence}/"
-        #self.poses_path = f"../dataset/poses/{sequence}.txt"
-        self.calib_path = self.seq_dir + "calib.txt"
-        
-        if rgb:
-            self.left_images_dir = self.seq_dir + 'image_2/'
-            self.right_images_dir = self.seq_dir + 'image_3/'
+        sequence_dir = f"../dataset/sequences/{prefix}/{sequence}/"        
+        if is_rgb:
+            self.images_left_dir = sequence_dir + 'image_2/'
+            self.images_right_dir = sequence_dir + 'image_3/'
         else:
-            self.left_images_dir = self.seq_dir + 'image_0/'
-            self.right_images_dir = self.seq_dir + 'image_1/'
+            self.images_left_dir = sequence_dir + 'image_0/'
+            self.images_right_dir = sequence_dir + 'image_1/'
+        self.images_left_files = sorted(os.listdir(self.images_left_dir))
+        self.images_right_files = sorted(os.listdir(self.images_right_dir))
 
-        self.left_image_files = sorted(os.listdir(self.left_images_dir))
-        self.right_image_files = sorted(os.listdir(self.right_images_dir))
-        self.num_frames = len(self.left_image_files)
+        self.num_frames = len(self.images_left_files)
+        first_image = cv2.imread(self.images_left_dir + self.images_left_files[0])
+        self.height = first_image.shape[0]
+        self.width = first_image.shape[1]
+        self.channels = first_image.shape[2]
 
-        #self.gt = pd.read_csv(self.poses_path, delimiter=' ', header=None).to_numpy().reshape(self.num_frames, 3, 4)
-
-        calib = pd.read_csv(self.calib_path, delimiter=' ', header=None, index_col = 0).to_numpy().reshape(4,3,4)
+        calib_path = sequence_dir + "calib.txt"
+        calib = pd.read_csv(calib_path, delimiter=' ', header=None, index_col = 0).to_numpy().reshape(4,3,4)
         self.P0 = calib[0]
         self.P1 = calib[1]
         self.P2 = calib[2]
         self.P3 = calib[3]
+        
+        if poses:
+            poses_path = f"../dataset/poses/{sequence}.txt"
+            self.poses = pd.read_csv(poses_path, delimiter=' ', header=None).to_numpy().reshape(self.num_frames, 3, 4)
 
-        self.reset()
+    def get_image_left_generator(self):
+        return (cv2.imread(self.images_left_dir + name_left) for name_left in self.images_left_files)
+        
+    def get_image_right_generator(self):
+        return (cv2.imread(self.images_right_dir + name_right) for name_right in self.images_right_files)
 
-    def reset(self):
-        self.images_left = (cv2.imread(self.left_images_dir + name_left) for name_left in self.left_image_files)
-        self.images_right = (cv2.imread(self.right_images_dir + name_right) for name_right in self.right_image_files)
+    def get_image_left(self, idx):
+        return cv2.imread(self.images_left_dir + self.images_left_files[idx])
+    
+    def get_image_right(self, idx):
+        return cv2.imread(self.images_right_dir + self.images_right_files[idx])

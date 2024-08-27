@@ -1,12 +1,11 @@
 import cv2
 import numpy as np
 
-def left_disparity_map(img_left, img_right, method = "sgbm"):
+def left_disparity_map(img_left, img_right, method = "sgbm", num_disparities = 16*16):
     img_left = cv2.cvtColor(img_left, cv2.COLOR_BGR2GRAY)
     img_right = cv2.cvtColor(img_right, cv2.COLOR_BGR2GRAY)
 
-    sad_window = 16
-    num_disparities = sad_window*16
+    #num_disparities = sad_window*16
     block_size = 9
 
     if method == 'bm':
@@ -42,10 +41,12 @@ def depth_map(disp_left, k_left, tl, tr):
 
     return depth_map
 
+def left_rect_mask(width, height, x):
+    mask = np.zeros((height, width), dtype=np.uint8)
+    mask[:, x:] = 255
+    return mask
 
-
-
-def extract_features(image, method, mask = None):
+def extract_features(image, method = 'sift', mask = None):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     if method == 'orb':
         extractor = cv2.ORB_create() #nfeatures=5000
@@ -67,3 +68,57 @@ def match_features(des_0, des_1):
         if m.distance < 0.5*n.distance:
             good.append(m)
     return good
+
+
+def estimate_motion(match, kp1, kp2, k, depth1=None, max_depth=3000):
+    rmat = np.eye(3)
+    tvec = np.zeros((3, 1))
+    
+    image1_kps = [kp1[m.queryIdx] for m in match]
+    image2_kps = [kp2[m.trainIdx] for m in match]
+
+    image1_points = np.float32([kp.pt for kp in image1_kps])
+    image2_points = np.float32([kp.pt for kp in image2_kps])
+
+    cx = k[0, 2]
+    cy = k[1, 2]
+    fx = k[0, 0]
+    fy = k[1, 1]
+    object_points = np.zeros((0, 3))
+    delete = []
+
+    for i, (u, v) in enumerate(image1_points):
+        z = depth1[int(v), int(u)]
+
+        if z > max_depth:
+            delete.append(i)
+            continue
+
+        x = z*(u-cx)/fx
+        y = z*(v-cy)/fy
+        object_points = np.vstack([object_points, np.array([x, y, z])])
+
+    image1_points = np.delete(image1_points, delete, 0)
+    image2_points = np.delete(image2_points, delete, 0)
+    image1_kps = np.delete(image1_kps, delete, 0)
+    image2_kps = np.delete(image2_kps, delete, 0)
+    
+    _, rvec, tvec, inliers = cv2.solvePnPRansac(object_points, image2_points, k, None)
+
+    rmat = cv2.Rodrigues(rvec)[0]
+
+    return rmat, tvec, image1_kps, image2_kps, object_points
+
+
+
+class Map():
+    def __init__(self, i):
+        self.i = i   #state
+        self.frames = []
+
+class Frame():
+    def __init__(self, i):
+        self.i = i
+        self.processed = False
+        self.points = []
+        self.pose = np.eye(4)

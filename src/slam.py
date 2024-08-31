@@ -1,10 +1,12 @@
+import math
+
 import cv2
 import numpy as np
 
-def left_disparity_map(img_left, img_right, method = "sgbm", num_disparities = 16*16):
+
+def left_disparity_map(img_left, img_right, method = "bm", num_disparities = 16*16):
     img_left = cv2.cvtColor(img_left, cv2.COLOR_BGR2GRAY)
     img_right = cv2.cvtColor(img_right, cv2.COLOR_BGR2GRAY)
-
     #num_disparities = sad_window*16
     block_size = 9
 
@@ -46,45 +48,52 @@ def left_rect_mask(width, height, x):
     mask[:, x:] = 255
     return mask
 
-def extract_features(image, method = 'sift', mask = None):
+def extract_features(image, method = 'sift', mask = None, nfeatures=3000):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     if method == 'orb':
-        extractor = cv2.ORB_create() #nfeatures=5000
+        extractor = cv2.ORB_create(nfeatures=nfeatures)
     if method == 'sift':
-        extractor = cv2.SIFT_create()
+        extractor = cv2.SIFT_create(nfeatures=nfeatures)
     
     keypoints, descriptors = extractor.detectAndCompute(image, mask)
 
     return keypoints, descriptors
 
 
-def match_features(des_0, des_1):
-    #matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    bf = cv2.BFMatcher()
-    matches = bf.knnMatch(des_0,des_1,k=2)
+def match_features(des_0, des_1, method = 'BF', detector = 'sift', lowe_ratio = 0.5):
+    if method == 'BF':
+        if detector == 'sift':
+            matcher = cv2.BFMatcher_create(cv2.NORM_L2, crossCheck=False)
+        elif detector == 'orb':
+            matcher = cv2.BFMatcher_create(cv2.NORM_HAMMING2, crossCheck=False)
+        matches = matcher.knnMatch(des_0, des_1, k=2)
+    elif method == 'FLANN':
+        FLANN_INDEX_KDTREE = 1
+        index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees=5)
+        search_params = dict(checks=50)
+        matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        matches = matcher.knnMatch(des_0, des_1, k=2)
     #ratio test
     good = []
     for m,n in matches:
-        if m.distance < 0.5*n.distance:
+        if m.distance < lowe_ratio*n.distance:
             good.append(m)
     return good
 
 
-def estimate_motion(match, kp1, kp2, k, depth1=None, max_depth=3000):
+def estimate_motion(match, kp1, kp2, k, target_points, depth1, max_depth=3000):
     rmat = np.eye(3)
     tvec = np.zeros((3, 1))
-    
-    image1_kps = [kp1[m.queryIdx] for m in match]
-    image2_kps = [kp2[m.trainIdx] for m in match]
 
-    image1_points = np.float32([kp.pt for kp in image1_kps])
-    image2_points = np.float32([kp.pt for kp in image2_kps])
+    image1_points = np.float32([kp1[m.queryIdx] for m in match])
+    image2_points = np.float32([kp2[m.trainIdx] for m in match])
 
     cx = k[0, 2]
     cy = k[1, 2]
     fx = k[0, 0]
     fy = k[1, 1]
     object_points = np.zeros((0, 3))
+    target_points_3d = np.zeros((0,3))
     delete = []
 
     for i, (u, v) in enumerate(image1_points):
@@ -98,23 +107,47 @@ def estimate_motion(match, kp1, kp2, k, depth1=None, max_depth=3000):
         y = z*(v-cy)/fy
         object_points = np.vstack([object_points, np.array([x, y, z])])
 
+    for (u, v) in target_points:
+        z = depth1[int(v), int(u)]
+        if z > max_depth:
+            continue
+        x = z*(u-cx)/fx
+        y = z*(v-cy)/fy
+        target_points_3d = np.vstack([target_points_3d, np.array([x, y, z])])
+
+
     image1_points = np.delete(image1_points, delete, 0)
     image2_points = np.delete(image2_points, delete, 0)
-    image1_kps = np.delete(image1_kps, delete, 0)
-    image2_kps = np.delete(image2_kps, delete, 0)
     
     _, rvec, tvec, inliers = cv2.solvePnPRansac(object_points, image2_points, k, None)
 
     rmat = cv2.Rodrigues(rvec)[0]
 
-    return rmat, tvec, image1_kps, image2_kps, object_points
+    return rmat, tvec, object_points, target_points_3d
 
 
+def to_global(points, pose):
+    ones_column = np.ones((points.shape[0], 1))
+    points_4d = np.hstack((points, ones_column))
+    points_3d_global = points_4d @ pose.T
+    return points_3d_global    
+
+def distance(p1, p2):
+    return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2 + (p1[2] - p2[2]) ** 2)
 
 class Map():
-    def __init__(self, i):
-        self.i = i   #state
+    def __init__(self, num_frames):
         self.frames = []
+        self.target_points = []
+        for i in range(0, num_frames):
+            self.frames.append(Frame(i))
+
+    def append_target(self, point, threshold):
+        is_equivalent = any(distance(point, existing_point) < threshold for existing_point in self.target_points)
+        
+        if not is_equivalent:
+            self.target_points.append(point)
+
 
 class Frame():
     def __init__(self, i):

@@ -59,3 +59,10 @@ def check_dataset(dataset, round=True):
     print(f"poses: {dataset.poses}\n shape: {dataset.poses.shape} \n type: {type(dataset.poses)}\n value type: {type(dataset.poses[0][0][0])} \n")
     np.set_printoptions()
     
+
+def print_timestamps(ts):
+    print(f" --- image preparation: {ts[1]-ts[0]}  --- fps: {1/(ts[1]-ts[0])}")
+    print(f" --- matching: {ts[3]-ts[2]}  --- fps: {1/(ts[3]-ts[2])}")
+    print(f" --- estimate motion: {ts[5]-ts[4]}  --- fps: {1/(ts[5]-ts[4])}")
+    print(f" --- TOTAL TIME: {ts[6]-ts[0]}  --- fps: {1/(ts[6]-ts[0])}")
+    print()
